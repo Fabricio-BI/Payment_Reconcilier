@@ -1,16 +1,15 @@
-import pandas as pd
-import numpy as np
 import logging
-import os
-import sys
 
-sys.path.insert(0, os.path.dirname(__file__))
-from etl import run_etl
+import numpy as np
+import pandas as pd
+
+from core.etl import run_etl
+from src.config import TOLERANCIA_CENTAVOS
 
 log = logging.getLogger(__name__)
 
 # Límite para absorber discrepancias menores de redondeo en pasarelas
-TOLERANCIA_CENTAVOS = 0.05  
+
 
 def cruzar_banco_erp(bank: pd.DataFrame, erp: pd.DataFrame) -> pd.DataFrame:
     log.info("Cruzando banco ↔ ERP...")
@@ -40,7 +39,7 @@ def cruzar_banco_erp(bank: pd.DataFrame, erp: pd.DataFrame) -> pd.DataFrame:
     # Las filas de reversión (chargeback) no generaron factura propia — son
     # una reversión de la venta original. original_transaction_id guarda el
     # tx_id de esa venta, así que buscamos sus datos directamente en erp.
-    erp_lookup = erp[["tx_id", "client_name", "monto_bruto_erp"]].rename(
+    erp_lookup = erp[["tx_id", "client_name", "monto_bruto_erp"]].rename(  # type: ignore[arg-type]
         columns={
             "tx_id": "original_transaction_id",
             "client_name": "client_name_original",
@@ -54,7 +53,7 @@ def cruzar_banco_erp(bank: pd.DataFrame, erp: pd.DataFrame) -> pd.DataFrame:
     df["monto_bruto_erp"] = df["monto_bruto_erp"].fillna(df["monto_bruto_erp_original"])
 
     df = df.drop(columns=["client_name_original", "monto_bruto_erp_original"])
-    
+
 
     # Comparación de flujos netos para evaluar descuadres iniciales
     df["diff_banco_erp"] = (
@@ -69,10 +68,10 @@ def agregar_gateway(df: pd.DataFrame, gateway: pd.DataFrame) -> pd.DataFrame:
     log.info("Agregando pasarela al cruce")
 
     # Se aíslan registros únicos de pasarela; duplicados van por canal operativo separado
-    gw_unique = gateway[gateway["es_duplicado"] == 0][[
-        "tx_id", "monto_bruto_gw", "comision_gw",
-        "neto_gw", "estado_gw", "batch_id"
-    ]].copy()
+    gw_unique= gateway.loc[
+        gateway["es_duplicado"] == 0 ,
+        ["tx_id", "monto_bruto_gw", "comision_gw","neto_gw", "estado_gw", "batch_id"]
+    ].copy()
 
     df = df.merge(gw_unique, on="tx_id", how="left")
     df["en_gateway"] = df["monto_bruto_gw"].notna().astype(int)
@@ -89,7 +88,7 @@ def agregar_gateway(df: pd.DataFrame, gateway: pd.DataFrame) -> pd.DataFrame:
 def clasificar_transacciones(df: pd.DataFrame) -> pd.DataFrame:
     log.info("Clasificando transacciones")
 
-    # Máscaras booleanas para la asignación de estados de concilacion 
+    # Máscaras booleanas para la asignación de estados de concilacion
     mask_conciliada = (
         (df["en_banco"] == 1) &
         (df["en_erp"]   == 1) &
@@ -97,8 +96,8 @@ def clasificar_transacciones(df: pd.DataFrame) -> pd.DataFrame:
         (df["diff_banco_erp"].abs() <= TOLERANCIA_CENTAVOS) &
         (df["es_chargeback"].fillna(0) == 0)
     )
-    
-    # Diferencias : Comision cobrada de mas 
+
+    # Diferencias : Comision cobrada de mas
 
     mask_com_mas = (
         (df["en_banco"] == 1) &
@@ -106,8 +105,8 @@ def clasificar_transacciones(df: pd.DataFrame) -> pd.DataFrame:
         (df["diff_banco_erp"].abs() > TOLERANCIA_CENTAVOS) &
         (df["diff_comision"] > TOLERANCIA_CENTAVOS)
     )
-    
-    
+
+
     # Diferencia : diferencia de centavos
     mask_centavos = (
         (df["en_banco"] == 1) &
@@ -116,10 +115,10 @@ def clasificar_transacciones(df: pd.DataFrame) -> pd.DataFrame:
         (df["diff_banco_erp"].abs() <= TOLERANCIA_CENTAVOS) &
         (~mask_conciliada)
     )
-    
+
     # Pediente : (en banco , no en ERP)
     mask_chargeback = (df["es_chargeback"].fillna(0) == 1)
-    
+
     # Pendiente : solo en banco
     mask_solo_banco = (
         (df["en_banco"] == 1) &
@@ -173,7 +172,7 @@ def clasificar_transacciones(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def detectar_duplicados_gateway(gateway: pd.DataFrame) -> pd.DataFrame:
-    dups = gateway[gateway["es_duplicado"] == 1].copy()
+    dups = gateway.loc[gateway["es_duplicado"] == 1].copy()
     dups["tipo_diferencia"] = "DUPLICADO_GATEWAY"
     log.info("  Duplicados en pasarela detectados: %d filas", len(dups))
     return dups
@@ -183,13 +182,13 @@ def generar_tabla_maestra(df: pd.DataFrame) -> pd.DataFrame:
     cols = [
         "tx_id", "invoice_number", "fecha_tx", "fecha_liquidacion", "fecha_factura",
         "gateway", "card_type", "monto_bruto_erp", "neto_esperado_erp",
-        "monto_neto_banco", "diff_banco_erp", "comision_banco", "comision_esperada", 
+        "monto_neto_banco", "diff_banco_erp", "comision_banco", "comision_esperada",
         "diff_comision", "ret_iva_banco", "ret_renta_banco", "client_name", "erp_module",
         "en_banco", "en_erp", "en_gateway", "estado_conciliacion", "tipo_diferencia",
         "monto_en_riesgo", "dias_antiguedad", "es_chargeback"
     ]
     cols_disponibles = [c for c in cols if c in df.columns]
-    return df[cols_disponibles].copy()
+    return df.loc[:,cols_disponibles].copy()
 
 
 def imprimir_resumen(df: pd.DataFrame, duplicados: pd.DataFrame):
@@ -215,10 +214,10 @@ def imprimir_resumen(df: pd.DataFrame, duplicados: pd.DataFrame):
     print("\nDetalle por tipo de diferencia:")
     detalle = df["tipo_diferencia"].value_counts(dropna=False)
     for tipo, cnt in detalle.items():
-        if pd.notna(tipo):
+        if pd.notna(tipo):       # type: ignore[arg-type]
             monto = df.loc[df["tipo_diferencia"] == tipo, "monto_en_riesgo"].sum()
             print(f"  {tipo}: {cnt} casos ($ {monto:,.2f})")
-    
+
     print()
     print("\nDetalle por pasarela:")
     for gw in df["gateway"].dropna().unique():
@@ -226,7 +225,7 @@ def imprimir_resumen(df: pd.DataFrame, duplicados: pd.DataFrame):
         conc = (df.loc[mask, "estado_conciliacion"] == "CONCILIADA").sum()
         tot  = mask.sum()
         print(f"  {gw}: {conc}/{tot} conciliadas ({conc/tot*100:.1f}%)" if tot > 0 else "")
-    
+
 
 
 def run_reconciler():
@@ -241,20 +240,3 @@ def run_reconciler():
 
     imprimir_resumen(tabla_maestra, duplicados)
     return tabla_maestra, duplicados
-
-
-if __name__ == "__main__":
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s [%(levelname)s] %(message)s",
-        datefmt="%Y-%m-%d %H:%M:%S"
-    )
-
-    tabla_maestra, duplicados = run_reconciler()
-
-    out_dir = os.path.join(os.path.dirname(__file__), "..", "data", "processed")
-    os.makedirs(out_dir, exist_ok=True)
-
-    tabla_maestra.to_csv(os.path.join(out_dir, "reconciliation_output.csv"), index=False)
-    duplicados.to_csv(   os.path.join(out_dir, "duplicados_gateway.csv"),    index=False)
-

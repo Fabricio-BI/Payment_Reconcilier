@@ -1,4 +1,3 @@
-
 # Conciliador de Pasarelas de Pago
 ## Qué detecta, por qué importa y cómo actuar
 
@@ -81,10 +80,21 @@ flowchart TD
 ## Estructura del repositorio
 
 ```
-CONCILIACION PASARELA/
+Payment_Reconciler/
 │
 ├── Readme.md
 ├── .gitignore
+├── requirements.txt
+├── main.py                         ← punto de entrada del pipeline
+│
+├── src/
+│   ├── config.py                   ← rutas y constantes del negocio
+│   └── log_config.py               ← configuración centralizada de logging
+│
+├── core/
+│   ├── etl.py                      ← limpieza y normalización
+│   ├── reconciler.py               ← cruce y clasificación
+│   └── loader.py                   ← carga a SQLite 
 │
 ├── data/
 │   ├── raw/                        ← archivos fuente
@@ -94,21 +104,74 @@ CONCILIACION PASARELA/
 │   └── processed/                  ← salidas del pipeline
 │       ├── reconciliation_output.csv
 │       ├── duplicados_gateway.csv
-│       └── conciliador.db
+│       └── conciliador.db          
 │
-├── src/
-│   ├── data_generator.py           ← genera los datos sintéticos
-│   ├── etl.py                      ← limpieza y normalización
-│   ├── reconciler.py               ← cruce y clasificación
-│   └── loader.py                   ← carga a SQLite
+├── images/                         ← capturas del proyecto
+│
+├── sample_output/                  ← resultado de ejemplo (estático, versionado)
+│   ├── reconciliation_output.csv
+│   ├── duplicados_gateway.csv
+│   ├── conciliador.db
+│   └── README.md
+│
+├── log/
+│   └── process.log
 │
 └── pbi_report/
     ├── Reconciliador_Informe.pbix
     └── ux_templates/
-        ├── pbi_page_1.JPG           ← Resumen Ejecutivo
-        ├── pbi_page_2.JPG           ← Partidas Abiertas
-        └── pbi_page_3.JPG           ← Análisis de Comisiones
+        ├── pbi_page_1.JPG          ← Resumen Ejecutivo
+        ├── pbi_page_2.JPG          ← Partidas Abiertas
+        └── pbi_page_3.JPG          ← Análisis de Comisiones
 ```
+## Cómo clonar y ejecutar el proyecto
+
+**Requisitos previos**
+
+- Python 3.12 o superior
+- Git
+
+**Pasos**
+
+```bash
+git clone https://github.com/<usuario>/Payment_Reconciler.git
+cd Payment_Reconciler
+
+python -m venv .venv
+source .venv/bin/activate     # En Windows: .venv\Scripts\activate
+
+pip install -r requirements.txt
+```
+
+El repositorio incluye datos de prueba en `data/raw/` (sintéticos, generados con Faker), por lo que el proyecto puede ejecutarse de inmediato sin necesidad de archivos adicionales:
+
+```bash
+python main.py
+```
+
+Esto genera automáticamente:
+
+- `data/processed/reconciliation_output.csv` y `duplicados_gateway.csv` — resultado de la corrida actual
+- `data/processed/conciliador.db` — base de datos histórica (se crea sola si no existe)
+- `log/process.log` — registro detallado de la ejecución
+
+Para usar el proyecto con datos reales, basta con reemplazar los tres archivos en `data/raw/` (`bank_report.csv`, `erp_invoices.csv`, `gateway_report.csv`) manteniendo exactamente esos nombres, y volver a correr `python main.py`.
+
+> Las carpetas `.venv/`, `__pycache__/` y `log/*.log` están excluidas del repositorio mediante `.gitignore` — cada persona las genera al clonar y ejecutar el proyecto.
+
+---
+
+## Resultado de ejemplo — `sample_output/`
+
+`data/processed/` es la carpeta de trabajo del pipeline — su contenido se sobrescribe en cada corrida y por eso está excluido del repositorio mediante `.gitignore`. Para que cualquiera pueda ver el resultado real sin tener que clonar, instalar dependencias y ejecutar nada, el repositorio incluye una copia estática en `sample_output/`:
+
+- `reconciliation_output.csv` y `duplicados_gateway.csv` — salida de una corrida real sobre los datos sintéticos de `data/raw/`
+- `conciliador.db` — la base de datos resultante, abrible directamente con DBeaver, SQLite CLI o cualquier cliente compatible con SQLite
+
+Esta carpeta es una fotografía fija de un momento específico, no un artefacto que se actualiza junto con el código — así lo indica el `README.md` dentro de `sample_output/`. Para obtener un resultado actualizado con el código actual, corre `python main.py` como se explica arriba.
+
+---
+
 ## Ejecución
  
 El pipeline está pensado para que lo opere directamente el responsable de conciliación, sin necesidad de conocimientos de programación ni de un editor de código. Una vez configurado el entorno una única vez, el proceso semanal se reduce a reemplazar los archivos fuente y hacer doble clic.
@@ -138,6 +201,26 @@ pause
  
 El script activa el entorno virtual, corre el reconciliador y carga los resultados a la base de datos en un solo paso. No requiere terminal, ni comandos, ni supervisión técnica — está diseñado para el contexto real de una PYME sin departamento de TI, donde el analista contable es quien opera el sistema directamente.
 
+
+## Cómo se actualiza el histórico en la base de datos
+
+El pipeline está pensado para correr de forma recurrente (semanal, en este proyecto) sin perder ni duplicar información. Esto se resuelve en `core/loader.py` mediante un mecanismo de actualización por `tx_id`, no por fecha ni por período.
+
+**Por qué no se duplica al correr varias veces**
+
+Los reportes fuente (`bank_report.csv`, `erp_invoices.csv`, `gateway_report.csv`) llegan acumulados desde el inicio del mes hasta la fecha de la corrida — no solo las transacciones nuevas. Esto significa que cada ejecución del pipeline recalcula el estado real y actualizado de todas las transacciones del mes, incluyendo aquellas que estaban pendientes en una corrida anterior y ya se resolvieron. Por ejemplo: una venta que en la semana 1 no tenía contraparte en el banco (quedaba como `PENDIENTE`), y en la semana 2 sí aparece liquidada, se reclasifica automáticamente como `CONCILIADA` sin intervención manual.
+
+Antes de insertar los nuevos resultados, `loader.py` elimina de la base únicamente las filas cuyo `tx_id` coincide con los que trae la corrida actual, y luego inserta el resultado completo. En la práctica esto logra el efecto de una actualización tipo *upsert*: los registros que cambiaron de estado se sobrescriben con su versión más reciente, y los que no cambiaron no se tocan.
+
+**Por qué se conserva el histórico entre meses**
+
+Como los `tx_id` de un mes nunca coinciden con los de otro mes (son transacciones distintas), el mecanismo de reemplazo nunca borra datos de meses anteriores — solo actualiza lo que corresponde al período que trae cada corrida. Esto permite que Power BI muestre evolución real a lo largo del tiempo, sin perder histórico de meses ya cerrados.
+
+**Columna `fecha_carga`**
+
+Cada fila incluye la fecha en que fue cargada o actualizada por última vez — útil como referencia informativa en el dashboard, aunque no participa en la lógica que evita duplicados; esa responsabilidad la tiene el `tx_id`.
+
+---
 
 ## Dashboard de Power BI — Reporte de Conciliación
 
@@ -185,7 +268,7 @@ Este desfase entre lo que registra el ERP ($500) y lo que deposita el banco ($45
 
 De un total de 3.024 transacciones analizadas en el período julio-diciembre 2024 (3.000 ventas originales + 24 reversiones posteriores), el sistema identificó 99 casos que requieren atención:
 
-![Resultado Conciliador](images/consola_pasarela.JPG)
+![Resultado Conciliador](images/ejecucion_consola.png)
 
 ```
 Transacciones conciliadas correctamente  →  2.925  (96.7%)
@@ -299,8 +382,12 @@ El impacto más concreto en el período analizado: $100.70 en comisiones recuper
 - Base de datos: SQLite para desarrollo. Cambiar a PostgreSQL modificando
   una línea en loader.py para entornos de producción.
 
-- Histórico: el loader usa append con control de períodos. Ejecutar
-  una vez por mes para acumular histórico en Power BI.
+- Histórico: el loader actualiza por tx_id (elimina e inserta solo las
+  filas cuyo tx_id coincide con la corrida actual), no por período. Esto
+  permite ejecutar el pipeline con la frecuencia que se necesite (semanal
+  en este proyecto) sin duplicar registros y sin perder histórico de
+  meses anteriores. Ver la sección "Cómo se actualiza el histórico en
+  la base de datos" para el detalle completo.
 
 - Aging: calculado con la fecha máxima del dataset. En producción con
   datos del mes actual, cambiar a DateTime.LocalNow() en Power BI.
