@@ -40,7 +40,7 @@ flowchart TD
         C["erp_invoices.csv\nFacturas del sistema contable"]
     end
  
-    subgraph ETL["Procesamiento — src/"]
+    subgraph ETL["Procesamiento — core/"]
         D["etl.py\nLimpieza y normalización\nRetenciones SRI · Comisiones"]
         E["reconciler.py\nAlgoritmo de cruce\nClasificación de novedades"]
         F["loader.py\nCarga a base de datos\nControl de períodos"]
@@ -145,7 +145,7 @@ source .venv/bin/activate     # En Windows: .venv\Scripts\activate
 pip install -r requirements.txt
 ```
 
-El repositorio incluye datos de prueba en `data/raw/` (sintéticos, generados con Faker), por lo que el proyecto puede ejecutarse de inmediato sin necesidad de archivos adicionales:
+El repositorio incluye datos de prueba en `data/raw/` , por lo que el proyecto puede ejecutarse de inmediato sin necesidad de archivos adicionales:
 
 ```bash
 python main.py
@@ -157,7 +157,7 @@ Esto genera automáticamente:
 - `data/processed/conciliador.db` — base de datos histórica (se crea sola si no existe)
 - `log/process.log` — registro detallado de la ejecución
 
-Para usar el proyecto con datos reales, basta con reemplazar los tres archivos en `data/raw/` (`bank_report.csv`, `erp_invoices.csv`, `gateway_report.csv`) manteniendo exactamente esos nombres, y volver a correr `python main.py`.
+Para usar el proyecto con datos reales, se  reemplazan los tres archivos en `data/raw/` (`bank_report.csv`, `erp_invoices.csv`, `gateway_report.csv`) manteniendo exactamente esos nombres, y volver a correr `python main.py`.
 
 > Las carpetas `.venv/`, `__pycache__/` y `log/*.log` están excluidas del repositorio mediante `.gitignore` — cada persona las genera al clonar y ejecutar el proyecto.
 
@@ -165,10 +165,10 @@ Para usar el proyecto con datos reales, basta con reemplazar los tres archivos e
 
 ## Resultado de ejemplo — `sample_output/`
 
-`data/processed/` es la carpeta de trabajo del pipeline — su contenido se sobrescribe en cada corrida y por eso está excluido del repositorio mediante `.gitignore`. Para que cualquiera pueda ver el resultado real sin tener que clonar, instalar dependencias y ejecutar nada, el repositorio incluye una copia estática en `sample_output/`:
+`data/processed/` es la carpeta de trabajo del pipeline, su contenido se sobrescribe en cada corrida y por eso está excluido del repositorio mediante `.gitignore`. Para que cualquiera pueda ver el resultado real sin tener que clonar, instalar dependencias y ejecutar nada, el repositorio incluye una copia estática en `sample_output/`:
 
 - `reconciliation_output.csv` y `duplicados_gateway.csv` — salida de una corrida real sobre los datos sintéticos de `data/raw/`
-- `conciliador.db` — la base de datos resultante, abrible directamente con DBeaver, SQLite CLI o cualquier cliente compatible con SQLite
+- `conciliador.db` — la base de datos resultante, se abre directamente con DBeaver, SQLite CLI o cualquier cliente compatible con SQLite
 
 Esta carpeta es una fotografía fija de un momento específico, no un artefacto que se actualiza junto con el código — así lo indica el `README.md` dentro de `sample_output/`. Para obtener un resultado actualizado con el código actual, corre `python main.py` como se explica arriba.
 
@@ -176,7 +176,7 @@ Esta carpeta es una fotografía fija de un momento específico, no un artefacto 
 
 ## Ejecución
  
-El pipeline está pensado para que lo opere directamente el responsable de conciliación, sin necesidad de conocimientos de programación ni de un editor de código. Una vez configurado el entorno una única vez, el proceso semanal se reduce a reemplazar los archivos fuente y hacer doble clic.
+El pipeline está pensado para que lo opere directamente el responsable de conciliació a traves de un archivo .bat que puede ser programdo o ejecutado directamente por el usuario, sin necesidad de conocimientos de programación ni de un editor de código. Una vez configurado el entorno una única vez, el proceso semanal se reduce a reemplazar los archivos fuente y hacer doble clic.
  
 **Configuración inicial (una sola vez)**
  
@@ -195,14 +195,12 @@ pip install -r requirements.txt
 @echo off
 cd /d "RUTA_DEL_PROYECTO"
 call .venv\Scripts\activate
-python src\reconciler.py
-python src\loader.py
+python main.py
 echo Proceso completado. Abre el .pbix y presiona Actualizar.
 pause
 ```
  
-El script activa el entorno virtual, corre el reconciliador y carga los resultados a la base de datos en un solo paso. No requiere terminal, ni comandos, ni supervisión técnica — está diseñado para el contexto real de una PYME sin departamento de TI, donde el analista contable es quien opera el sistema directamente.
-
+El script activa el entorno virtual y corre `main.py`, que orquesta todo el pipeline en un solo paso: concilia, guarda los resultados y actualiza la base de datos. No requiere terminal, ni comandos, ni supervisión técnica .
 
 ## Cómo se actualiza el histórico en la base de datos
 
@@ -213,14 +211,6 @@ El pipeline está pensado para correr de forma recurrente (semanal, en este proy
 Los reportes fuente (`bank_report.csv`, `erp_invoices.csv`, `gateway_report.csv`) llegan acumulados desde el inicio del mes hasta la fecha de la corrida — no solo las transacciones nuevas. Esto significa que cada ejecución del pipeline recalcula el estado real y actualizado de todas las transacciones del mes, incluyendo aquellas que estaban pendientes en una corrida anterior y ya se resolvieron. Por ejemplo: una venta que en la semana 1 no tenía contraparte en el banco (quedaba como `PENDIENTE`), y en la semana 2 sí aparece liquidada, se reclasifica automáticamente como `CONCILIADA` sin intervención manual.
 
 Antes de insertar los nuevos resultados, `loader.py` elimina de la base únicamente las filas cuyo `tx_id` coincide con los que trae la corrida actual, y luego inserta el resultado completo. En la práctica esto logra el efecto de una actualización tipo *upsert*: los registros que cambiaron de estado se sobrescriben con su versión más reciente, y los que no cambiaron no se tocan.
-
-**Por qué se conserva el histórico entre meses**
-
-Como los `tx_id` de un mes nunca coinciden con los de otro mes (son transacciones distintas), el mecanismo de reemplazo nunca borra datos de meses anteriores — solo actualiza lo que corresponde al período que trae cada corrida. Esto permite que Power BI muestre evolución real a lo largo del tiempo, sin perder histórico de meses ya cerrados.
-
-**Columna `fecha_carga`**
-
-Cada fila incluye la fecha en que fue cargada o actualizada por última vez — útil como referencia informativa en el dashboard, aunque no participa en la lógica que evita duplicados; esa responsabilidad la tiene el `tx_id`.
 
 ---
 
@@ -239,19 +229,7 @@ Informe que consolida los principales indicadores: montos totales procesados, vo
 
 Antes de explicar los errores que el sistema detecta, es importante entender cómo fluye el dinero en cada transacción con tarjeta.
 
-Cuando un cliente paga $500 con su tarjeta Visa, esto es lo que ocurre:
-
-**1. El cliente paga $500**
-Su banco — el banco que emitió su tarjeta, llamado banco emisor — autoriza el cobro y reserva los fondos.
-
-**2. La pasarela procesa la transacción y cobra su comisión**
-Datafast, por ejemplo, cobra el 3.5% sobre el valor bruto. De los $500 descuenta $17.50 y envía $482.50 al banco del comercio.
-
-**3. El banco del comercio aplica las retenciones del SRI**
-El banco adquirente — el banco donde el comercio tiene su cuenta — actúa como agente de retención. Por obligación legal descuenta la retención de IVA (4.5% sobre el valor bruto = $22.50) y la retención en la fuente de renta (1% = $5.00).
-
-**4. El banco deposita el valor neto**
-Después de todos los descuentos, el comercio recibe $455.00 — no los $500.00 que pagó el cliente.
+Cuando un cliente paga $500 con su tarjeta Visa, el dinero pasa por tres descuentos antes de llegar al comercio: la comisión de la pasarela, la retención de IVA y la retención en la fuente de renta que exige el SRI.
 
 ```
 Cliente paga              $500.00
@@ -372,9 +350,7 @@ Con esa información el contador:
 
 Antes de este sistema, un equipo contable dedicaba entre 8 y 20 horas semanales a cruzar manualmente los reportes del banco, la pasarela y el ERP. Aun así, errores como las comisiones cobradas de más o los chargebacks no registrados pasaban desapercibidos porque el volumen de transacciones hace imposible revisar cada línea con atención.
 
-Con el sistema ese trabajo toma menos de un minuto. El pipeline automatizado lee los tres reportes, aplica las reglas del SRI y los contratos de cada pasarela, cruza las transacciones y clasifica cada una con su estado y tipo de novedad. El resultado es un dashboard ejecutivo que el gerente financiero puede leer en 30 segundos y un detalle operativo que el contador puede usar para actuar de inmediato.
-
-El impacto más concreto en el período analizado: $100.70 en comisiones recuperables que sin el sistema nadie hubiera reclamado, y $5,060.69 en ingresos ficticios que hubieran cerrado el período en los libros contables sin ser detectados.
+Con el sistema ese trabajo toma menos de un minuto: el pipeline lee los tres reportes, aplica las reglas del SRI y de cada contrato de pasarela, cruza las transacciones y clasifica cada una con su estado y tipo de novedad — entregando un dashboard ejecutivo y un detalle operativo listos para actuar, con los montos recuperables y en riesgo que ya se detallaron arriba.
 
 ---
 
@@ -400,13 +376,11 @@ El impacto más concreto en el período analizado: $100.70 en comisiones recuper
   mediante lookup por el identificador de transacción original — ya
   implementado en reconciler.py.
 
-- Eventos posteriores al cierre: el sistema puede detectar reversiones
-  que ocurren después del corte del período que se está analizando
-  (por ejemplo, una venta de diciembre revertida en enero). Esto refleja
-  un caso contable real — subsequent events — y se recomienda que el
-  generador excluya de la muestra de chargebacks las ventas de los
-  últimos 45 días del período, para evitar reversiones fuera de rango
-  en datos sintéticos.
+- Eventos posteriores al cierre: el sistema puede detectar reversiones que
+  ocurren después del corte del período analizado (subsequent events, un
+  caso contable real). Con datos sintéticos, se recomienda que el generador
+  excluya de la muestra de chargebacks las ventas de los últimos 45 días
+  del período, para evitar reversiones fuera de rango.
 ```
 
 ---
