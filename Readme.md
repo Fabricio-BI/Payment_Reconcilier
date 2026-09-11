@@ -1,6 +1,8 @@
 # Conciliador de Pasarelas de Pago
 ## Qué detecta, por qué importa y cómo actuar
 
+![CI](https://github.com/Fabricio-BI/Payment_Reconciler/actions/workflows/ci.yml/badge.svg)
+
 ---
 
 ## El problema que resuelve
@@ -268,7 +270,7 @@ Este desfase entre lo que registra el ERP ($500) y lo que deposita el banco ($45
 
 De un total de 3.024 transacciones analizadas en el período julio-diciembre 2024 (3.000 ventas originales + 24 reversiones posteriores), el sistema identificó 99 casos que requieren atención:
 
-![Resultado Conciliador](images/ejecucion_consola.png)
+![Resultado Conciliador](images/consola_pasarela.JPG)
 
 ```
 Transacciones conciliadas correctamente  →  2.925  (96.7%)
