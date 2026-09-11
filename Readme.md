@@ -1,7 +1,7 @@
 # Conciliador de Pasarelas de Pago
 ## Qué detecta, por qué importa y cómo actuar
 
-![CI](https://github.com/Fabricio-BI/Payment_Reconciler/actions/workflows/ci.yml/badge.svg)
+![CI](https://github.com/Fabricio-BI/Payment_Reconcilier/actions/workflows/ci.yml/badge.svg)
 
 ---
 
