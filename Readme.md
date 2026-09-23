@@ -5,15 +5,35 @@
 
 ---
 
+## ▶ Demo (1 min)
+
+![Demo](images/demo.mp4)
+
+**En 60 segundos:** tres sistemas (ERP, pasarela de pago y banco) que no se hablan entre sí, un pipeline en Python que los cruza automáticamente, y un dashboard en Power BI con el detalle línea por línea — lo que antes tomaba 8–20 horas semanales, ahora corre en menos de un minuto con un doble clic.
+
+---
+
+## Índice
+
+- [El problema que resuelve](#el-problema-que-resuelve)
+- [Stack tecnológico](#stack-tecnológico)
+- [Pipeline del proyecto](#pipeline-del-proyecto)
+- [Estructura del repositorio](#estructura-del-repositorio)
+- [Cómo clonar y ejecutar el proyecto](#cómo-clonar-y-ejecutar-el-proyecto)
+- [Resultado de ejemplo](#resultado-de-ejemplo--sample_output)
+- [Ejecución](#ejecución)
+- [Cómo se actualiza el histórico en la base de datos](#cómo-se-actualiza-el-histórico-en-la-base-de-datos)
+- [Dashboard de Power BI](#dashboard-de-power-bi--reporte-de-conciliación)
+- [Cómo fluye el dinero](#cómo-fluye-el-dinero--la-base-para-entender-las-novedades)
+- [Las tres novedades detectadas](#las-tres-novedades-que-el-sistema-detecta) *(detalle completo en [NOVEDADES.md](NOVEDADES.md))*
+- [El valor que aporta el proyecto](#el-valor-que-aporta-el-proyecto)
+- [Notas para producción](#notas-para-producción)
+
+---
+
 ## El problema que resuelve
 
-Cuando una empresa recibe pagos con tarjeta de crédito, intervienen tres sistemas distintos que deben coincidir al final del mes:
-
-- **El ERP o sistema contable** registra cada venta en el momento en que ocurre. Muestra el valor bruto de la factura — lo que el cliente pagó.
-- **La pasarela de pago** (Datafast, Medianet, PayPhone) procesa la transacción y cobra su comisión por el servicio.
-- **El banco** recibe los fondos de la pasarela, aplica las retenciones que exige el SRI y deposita el valor neto en la cuenta del comercio.
-
-El problema es que estos tres sistemas no se comunican entre sí de forma automática. El equipo contable tiene que cruzar manualmente los reportes de los tres — un proceso que con volúmenes medianos puede tomar entre 8 y 20 horas semanales y que, inevitablemente, genera errores humanos.
+Tres sistemas deben coincidir al final del mes — el ERP (factura el valor bruto), la pasarela de pago (Datafast, Medianet, PayPhone, que cobra su comisión) y el banco (deposita el neto tras las retenciones del SRI) — pero no se comunican entre sí de forma automática. El equipo contable termina cruzando los reportes a mano, un proceso que con volúmenes medianos toma entre 8 y 20 horas semanales y que, inevitablemente, genera errores humanos.
 
 > **Nota sobre los datos:** Este proyecto usa datos sintéticos generados con Faker. Los nombres de empresas, RUCs y transacciones son ficticios. El problema de negocio que modela — comisiones cobradas de más, chargebacks no registrados, transacciones sin trazabilidad — es completamente real y ocurre en cualquier empresa que procese pagos con tarjeta.
 
@@ -137,7 +157,7 @@ Payment_Reconciler/
 
 ```bash
 git clone https://github.com/<usuario>/Payment_Reconciler.git
-cd Payment_Reconciler
+cd Payment_Reconcilier
 
 python -m venv .venv
 source .venv/bin/activate     # En Windows: .venv\Scripts\activate
@@ -175,8 +195,8 @@ Esta carpeta es una fotografía fija de un momento específico, no un artefacto 
 ---
 
 ## Ejecución
- 
-El pipeline está pensado para que lo opere directamente el responsable de conciliació a traves de un archivo .bat que puede ser programdo o ejecutado directamente por el usuario, sin necesidad de conocimientos de programación ni de un editor de código. Una vez configurado el entorno una única vez, el proceso semanal se reduce a reemplazar los archivos fuente y hacer doble clic.
+
+Pensado para que lo opere directamente el responsable de conciliación, sin conocimientos de programación: un `.bat` (o `cron` en Linux) que se ejecuta con doble clic o de forma programada. Una vez configurado el entorno una vez, el proceso semanal se reduce a reemplazar los archivos fuente y correr el script.
  
 **Configuración inicial (una sola vez)**
  
@@ -259,90 +279,13 @@ Transacciones sin confirmar en pasarela  →     30  casos
 
 ---
 
-### Novedad 1 — Comisiones cobradas de más por la pasarela
+| Novedad | Casos | Impacto | Detalle completo |
+|---|---|---|---|
+| Comisiones cobradas de más | 45 | $100.70 recuperable | [Ver análisis →](NOVEDADES.md#novedad-1--comisiones-cobradas-de-más-por-la-pasarela) |
+| Chargebacks no registrados en ERP | 24 | $5,060.69 en riesgo | [Ver análisis →](NOVEDADES.md#novedad-2--chargebacks-no-registrados-en-el-erp) |
+| Transacciones sin confirmar en pasarela | 30 | $12,872.18 sin trazabilidad | [Ver análisis →](NOVEDADES.md#novedad-3--transacciones-sin-confirmar-en-la-pasarela) |
 
-**Qué significa**
-
-La pasarela cobró un porcentaje de comisión mayor al acordado en el contrato. Por ejemplo, el contrato con Datafast establece una tasa del 3.5%, pero en 45 transacciones cobró entre 4.0% y 5.0%.
-
-**Por qué ocurre**
-
-Las pasarelas aplican tarifas distintas según el tipo de tarjeta, el país de emisión o la categoría del comercio. Cuando el sistema clasifica incorrectamente una transacción, aplica una tarifa más alta. Sin un sistema de verificación, ese sobrecargo pasa desapercibido.
-
-**El impacto económico**
-
-En el período analizado las pasarelas cobraron $100.70 más de lo estipulado en los contratos. Este monto es completamente recuperable mediante un reclamo formal.
-
-**Cómo lo resuelve el contador**
-
-El reporte muestra por cada transacción el monto de la factura, la comisión que debía cobrarse según contrato, la comisión que se cobró realmente y la diferencia a reclamar.
-
-Con esa información el contador:
-
-1. Agrupa las diferencias por pasarela para obtener el total a reclamar a cada una.
-2. Genera una carta de reclamo formal con el detalle de cada transacción afectada, la referencia del contrato y el monto total a devolver.
-3. Una vez que la pasarela procesa la devolución, registra el ajuste contable correspondiente.
-
----
-
-### Novedad 2 — Chargebacks no registrados en el ERP
-
-**Qué es un chargeback**
-
-Un chargeback ocurre cuando un cliente disputa un cobro con su banco. El cliente llama a su banco — el banco emisor — y dice "no reconozco este cargo" o "el producto nunca llegó". El banco emisor investiga y, si considera válida la disputa, devuelve el dinero al cliente y se lo descuenta al comercio.
-
-Este proceso es completamente automático y unilateral — el banco no pide autorización al comercio. Simplemente revierte el depósito y lo notifica después mediante el reporte de liquidación, donde la transacción aparece con un monto negativo.
-
-**Cómo se modela en este proyecto**
-
-A diferencia de una simplificación ingenua (donde la venta original simplemente "desaparecería"), el generador de datos simula el escenario real: la venta ocurre y se factura con normalidad, y entre 15 y 45 días después llega la reversión como una transacción nueva e independiente en el reporte bancario — vinculada a la venta original mediante un identificador de referencia. Esto permite que el sistema recupere automáticamente el cliente y el monto de la factura original, exactamente como lo haría un contador al investigar el caso.
-
-**El problema**
-
-El banco revirtió 24 transacciones por un total de $5,060.69. Esas reversiones aparecen en el reporte bancario como montos negativos. Sin embargo, el ERP nunca fue actualizado — las facturas correspondientes siguen marcadas como pagadas.
-
-Esto significa que el sistema contable muestra $5,060.69 en ingresos que en realidad ya no existen en la cuenta bancaria.
-
-**El impacto contable**
-
-Si este error no se corrige antes del cierre contable, el estado de resultados está inflado en $5,060.69. La empresa cree que cobró ese dinero cuando en realidad ya fue devuelto al cliente.
-
-**Cómo lo resuelve el contador**
-
-El reporte muestra cada chargeback con su fecha, cliente, pasarela y monto revertido — recuperado automáticamente desde la factura original mediante el cruce por identificador de transacción.
-
-Con esa información el contador:
-
-1. Localiza cada factura en el ERP usando el código de transacción.
-2. Registra una nota de crédito o asiento de reversión para anular el ingreso contabilizado.
-3. Verifica si el chargeback puede ser disputado — el comercio tiene un plazo definido para presentar evidencia ante la pasarela y recuperar el dinero si el cobro era legítimo.
-4. Si el plazo venció o la disputa no procede, registra la pérdida definitiva.
-
----
-
-### Novedad 3 — Transacciones sin confirmar en la pasarela
-
-**Qué significa**
-
-Son 30 transacciones que el banco liquidó y el ERP registró correctamente — los montos cuadran — pero que no aparecen en el reporte de la pasarela.
-
-A diferencia de los dos casos anteriores, aquí no hay una diferencia de dinero. El problema es de trazabilidad: no hay evidencia de que la pasarela participó en el procesamiento de esas transacciones.
-
-**Por qué importa**
-
-Sin la confirmación de la pasarela no es posible verificar qué comisión cobró ni auditar si el procesamiento fue correcto. En una revisión externa o auditoría tributaria, esa falta de trazabilidad genera observaciones de control interno.
-
-Además, en casos extremos puede indicar que el pago llegó por un canal no autorizado o que hubo un error en el procesamiento que requiere investigación.
-
-**Cómo lo resuelve el contador**
-
-El reporte muestra cada transacción con su fecha, pasarela asignada y los montos registrados en banco y ERP.
-
-Con esa información el contador:
-
-1. Contacta a la pasarela con el listado de transacciones sin confirmar y solicita una explicación.
-2. Si la pasarela confirma que las procesó y fue un error de reporte, solicita el reporte corregido y verifica que las comisiones sean correctas.
-3. Si la pasarela no tiene registro de esas transacciones, investiga el canal real del pago — puede ser una transferencia directa, un depósito en efectivo u otro medio — y actualiza el registro en el ERP con el canal correcto.
+📄 **[NOVEDADES.md](NOVEDADES.md)** contiene el detalle de cada novedad: qué significa, por qué ocurre, el impacto contable y cómo lo resuelve el equipo paso a paso.
 
 ---
 
