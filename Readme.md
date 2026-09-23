@@ -5,11 +5,10 @@
 
 ---
 
-## ▶ Demo (1 min)
+## ▶ Demo 
 
-![Demo](images/demo.mp4)
+https://github.com/user-attachments/assets/eb61ace0-cf23-4b96-8cc8-fa8a834174bd
 
-**En 60 segundos:** tres sistemas (ERP, pasarela de pago y banco) que no se hablan entre sí, un pipeline en Python que los cruza automáticamente, y un dashboard en Power BI con el detalle línea por línea — lo que antes tomaba 8–20 horas semanales, ahora corre en menos de un minuto con un doble clic.
 
 ---
 
